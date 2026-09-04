@@ -4,7 +4,7 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription, DeclareLaunchArgument
+from launch.actions import IncludeLaunchDescription, DeclareLaunchArgument, SetEnvironmentVariable
 from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, NotSubstitution
@@ -13,15 +13,15 @@ from launch_ros.actions import Node
 
 def generate_launch_description():
 
-    package_name='kridtbot' 
+    package_name='kridtbot'
 
     # Find world file
     default_world = os.path.join(
         get_package_share_directory(package_name),
         'worlds',
         'empty.world'
-        )    
-    
+        )
+
     world = LaunchConfiguration('world')
 
     world_arg = DeclareLaunchArgument(
@@ -29,7 +29,16 @@ def generate_launch_description():
         default_value=default_world,
         description='World to load'
         )
-    
+
+    # Let Gazebo resolve model://kridtbot/... URIs (meshes) from the URDF by
+    # pointing it at the parent of this package's share dir.
+    gz_model_path = os.path.dirname(get_package_share_directory(package_name))
+    existing_resource_path = os.environ.get('GZ_SIM_RESOURCE_PATH', '')
+    gz_resource_path = SetEnvironmentVariable(
+        name='GZ_SIM_RESOURCE_PATH',
+        value=os.pathsep.join(filter(None, [gz_model_path, existing_resource_path]))
+        )
+
     # Include the Gazebo launch file, provided by the ros_gz_sim package
     params = os.path.join(get_package_share_directory(package_name), 'config', 'gz_params.yaml')
     gazebo = IncludeLaunchDescription(
@@ -60,8 +69,9 @@ def generate_launch_description():
     
     # Launch all
     return LaunchDescription([
- 
+
         world_arg,
+        gz_resource_path,
         gazebo,
         spawn_entity,
         ros_gz_bridge,
