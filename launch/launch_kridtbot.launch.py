@@ -28,7 +28,8 @@ def generate_launch_description():
     use_mec_or_diff = 'diff' # 'choose between 'mec' or 'diff' for mecanum or differential drive
     
     use_sim_config = LaunchConfiguration('use_sim')
-    
+    active_suspension_config = LaunchConfiguration('active_suspension')
+
     # Declare use_sim argument
     use_sim = DeclareLaunchArgument(
         'use_sim',
@@ -36,11 +37,18 @@ def generate_launch_description():
         description='Boolean flag to enable simulation mode'
     )
 
+    # Declare active_suspension argument
+    active_suspension = DeclareLaunchArgument(
+        'active_suspension',
+        default_value='true',
+        description='Suspension linear joints are prismatic (actively controlled) if true, fixed (passive) if false'
+    )
+
     #### Launch 1: Launch the robot state publisher
     rsp = IncludeLaunchDescription(
                 PythonLaunchDescriptionSource([os.path.join(
                     get_package_share_directory(package_name),'launch','rsp.launch.py'
-                )]), launch_arguments={'use_sim':'true'}.items(),
+                )]), launch_arguments={'use_sim':'true', 'active_suspension': active_suspension_config}.items(),
                 condition=IfCondition(use_sim_config)
     )
     rsp_test = IncludeLaunchDescription(
@@ -272,6 +280,7 @@ def generate_launch_description():
     # Launch all
     return LaunchDescription([
         use_sim,
+        active_suspension,
         #rsp_test,
         rsp,
         gz_spawner,

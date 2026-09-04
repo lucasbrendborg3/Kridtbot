@@ -15,9 +15,16 @@
   </material>
 
   <material name="mesh_color">
-    <color rgba="${0/255} ${0/255} ${255/255} 0.6" /> 
+    <color rgba="${0/255} ${0/255} ${255/255} 0.6" />
   </material>
-  
+
+  <!-- Suspension actuator joints are prismatic when actively controlled (position/
+       velocity/effort via ros2_control), or fixed for a passive suspension. -->
+  <xacro:property name="linear_joint_type" value="prismatic"/>
+  <xacro:unless value="$(arg active_suspension)">
+    <xacro:property name="linear_joint_type" value="fixed"/>
+  </xacro:unless>
+
   <!-- ________BASE LINK__________-->
   <link name="base_link" />
 
@@ -146,7 +153,7 @@
 
   <!-- _____________LEFT REAR LINEAR ACtuator____________-->  
 
-  <joint name="left_rear_linear" type="fixed">
+  <joint name="left_rear_linear" type="${linear_joint_type}">
     <limit effort="1000.0" lower="0" upper="0.13" velocity="0.5"/>
     <origin xyz="-0.216 -0.0010724 0" rpy="-1.5708 0 0.0049647"/>
     <axis xyz="0 0 1"/>
@@ -218,7 +225,7 @@
   </gazebo>
 
   <!-- _____________LEFT FRONT LINEAR actuator____________-->
-  <joint name="left_front_linear" type="fixed">
+  <joint name="left_front_linear" type="${linear_joint_type}">
     <limit effort="1000.0" lower="0" upper="0.13" velocity="0.5"/> 
     <origin xyz="0.216 0.0010724 0" rpy="-1.5708 0 0.0049647"/>
     <axis xyz="0 0 1"/>
@@ -328,7 +335,7 @@
   </gazebo>
   
   <!-- _____________RIGHT REAR LINEAR actuator ____________-->
-  <joint name="right_rear_linear" type="fixed">
+  <joint name="right_rear_linear" type="${linear_joint_type}">
     <limit effort="1000.0" lower="0" upper="0.13" velocity="0.5"/>
     <origin xyz="0.216 -0.0010724 0" rpy="-1.5708 0 0.0049647"/>
     <axis xyz="0 0 1"/>
@@ -402,7 +409,7 @@
   </gazebo>
   
   <!-- _____________RIGHT FRONT LINEAR actuator ____________-->
-  <joint name="right_front_linear" type="fixed">
+  <joint name="right_front_linear" type="${linear_joint_type}">
     <limit effort="1000.0" lower="0" upper="0.13" velocity="0.5"/>
     <origin xyz="-0.216 0.0010724 0" rpy="-1.5708 0 0.0049647"/>
     <axis xyz="0 0 1"/>

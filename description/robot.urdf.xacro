@@ -3,6 +3,7 @@
 
     <!-- Arguments -->
     <xacro:arg name="use_sim_system" default="false"/>
+    <xacro:arg name="active_suspension" default="true"/>
 
     <!-- URDF Robot Description-->
     <xacro:include filename="robot_core.xacro" />

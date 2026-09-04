@@ -14,14 +14,15 @@ def generate_launch_description():
 
     # sim time argument
     use_sim = LaunchConfiguration('use_sim')
-    
-    # Process URDF 
+    active_suspension = LaunchConfiguration('active_suspension')
+
+    # Process URDF
     pkg_path = os.path.join(get_package_share_directory('kridtbot'))
 
     xacro_file = os.path.join(pkg_path,'description','robot.urdf.xacro') # main xacro
-    
+
     # robot_description_config = xacro.process_file(xacro_file).toxml()
-    robot_description_config = Command(['xacro ', xacro_file, ' use_sim_system:=', use_sim, ' sim_mode:=', use_sim])
+    robot_description_config = Command(['xacro ', xacro_file, ' use_sim_system:=', use_sim, ' sim_mode:=', use_sim, ' active_suspension:=', active_suspension])
     
     # robot_state_publisher node on topic "robot_description"
     params_robot_state_publisher = {'robot_description': robot_description_config, 'use_sim_time': use_sim}
@@ -55,6 +56,10 @@ def generate_launch_description():
             'use_sim',
             default_value='false',
             description='uses ros2_control if true'),
+        DeclareLaunchArgument(
+            'active_suspension',
+            default_value='true',
+            description='Suspension linear joints are prismatic (actively controlled) if true, fixed (passive) if false'),
         node_robot_state_publisher,
         #rviz2_node,
     ])

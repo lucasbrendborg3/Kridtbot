@@ -33,42 +33,46 @@
             <state_interface name="position"></state_interface>
         </joint>
 
-        <!-- All prismatic joints -->
-        <joint name="right_rear_linear">
-            <command_interface name="position"/>
-            <command_interface name="velocity"/>
-            <command_interface name="effort"/>
-            <state_interface name="position"/>
-            <state_interface name="velocity"/>
-            <state_interface name="effort"/>
-        </joint>
+        <!-- All prismatic joints (only controllable when the suspension is active;
+             with a passive/fixed suspension these joints don't exist as ros2_control
+             interfaces at all) -->
+        <xacro:if value="$(arg active_suspension)">
+            <joint name="right_rear_linear">
+                <command_interface name="position"/>
+                <command_interface name="velocity"/>
+                <command_interface name="effort"/>
+                <state_interface name="position"/>
+                <state_interface name="velocity"/>
+                <state_interface name="effort"/>
+            </joint>
 
-        <joint name="right_front_linear">
-            <command_interface name="position"/>
-            <command_interface name="velocity"/>
-            <command_interface name="effort"/>
-            <state_interface name="position"/>
-            <state_interface name="velocity"/>
-            <state_interface name="effort"/>
-        </joint>
+            <joint name="right_front_linear">
+                <command_interface name="position"/>
+                <command_interface name="velocity"/>
+                <command_interface name="effort"/>
+                <state_interface name="position"/>
+                <state_interface name="velocity"/>
+                <state_interface name="effort"/>
+            </joint>
 
-        <joint name="left_rear_linear">
-            <command_interface name="position"/>
-            <command_interface name="velocity"/>
-            <command_interface name="effort"/>
-            <state_interface name="position"/>
-            <state_interface name="velocity"/>
-            <state_interface name="effort"/>
-        </joint>
+            <joint name="left_rear_linear">
+                <command_interface name="position"/>
+                <command_interface name="velocity"/>
+                <command_interface name="effort"/>
+                <state_interface name="position"/>
+                <state_interface name="velocity"/>
+                <state_interface name="effort"/>
+            </joint>
 
-        <joint name="left_front_linear">
-            <command_interface name="position"/>
-            <command_interface name="velocity"/>
-            <command_interface name="effort"/>
-            <state_interface name="position"/>
-            <state_interface name="velocity"/>
-            <state_interface name="effort"/>
-        </joint>
+            <joint name="left_front_linear">
+                <command_interface name="position"/>
+                <command_interface name="velocity"/>
+                <command_interface name="effort"/>
+                <state_interface name="position"/>
+                <state_interface name="velocity"/>
+                <state_interface name="effort"/>
+            </joint>
+        </xacro:if>
 
         <!-- IMU sensor-->
         
