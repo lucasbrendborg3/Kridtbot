@@ -10,3 +10,12 @@ __pycache__/
 .claude/settings.local.json
 /.vscode/
 /src/ros-imu-bno055/.vscode/
+/src/.vscode/
+
+# SLAM output written to the working directory (old maps: git checkout maps-archive -- maps/)
+/maps/
+/*.pcd
+/*.g2o
+/*.posegraph
+/*.data
+/*.pgm
