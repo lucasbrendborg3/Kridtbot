@@ -1,13 +1,13 @@
 # Kridtbot
 
 ROS 2 Jazzy workspace for **Kridtbot**, a four-wheeled weeding rover with a height-adjustable
-suspension and a robot arm. The repository is the whole colcon workspace: clone it as `~/ros_ws`.
+suspension and a robot arm. The repository is the whole colcon workspace: clone it as `~/kridtbot_ws`.
 
 ## Setup
 
 ```bash
-git clone https://github.com/lucasbrendborg3/Kridtbot.git ~/ros_ws
-cd ~/ros_ws
+git clone https://github.com/lucasbrendborg3/Kridtbot.git ~/kridtbot_ws
+cd ~/kridtbot_ws
 source /opt/ros/jazzy/setup.bash
 rosdep install --from-paths src --ignore-src -y
 colcon build --symlink-install
@@ -26,7 +26,7 @@ The rover expects the CAN interfaces `can_l` and `can_r` (wheels) and `can_odriv
 ros2 launch kridtbot launch_kridtbot.launch.py use_odrive:=true
 
 # Rover + arm + stop-and-go weeding mission (suspension not used)
-source ~/robot_arm_ws/install/setup.bash && source ~/ros_ws/install/setup.bash
+source ~/robot_arm_ws/install/setup.bash && source ~/kridtbot_ws/install/setup.bash
 ros2 launch kridtbot main.launch.py
 ```
 

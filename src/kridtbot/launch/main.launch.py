@@ -3,7 +3,7 @@
 
 Needs both workspaces sourced, the arm's first:
   source ~/robot_arm_ws/install/setup.bash
-  source ~/ros_ws/install/setup.bash
+  source ~/kridtbot_ws/install/setup.bash
   ros2 launch kridtbot main.launch.py
 """
 

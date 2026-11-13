@@ -18,10 +18,10 @@ slam_toolbox:
     use_map_saver: true
     mode: localization # mapping, localization
 
-    #map_file_name: /home/gunnar/ros_ws/src/kridtbot/hallway_map_serial_2
+    #map_file_name: /home/gunnar/kridtbot_ws/src/kridtbot/hallway_map_serial_2
     #map_start_pose: [0.0, 0.0, 0.0]
     map_start_at_dock: true
-    #map_file_name: /home/gunnar/ros_ws/src/kridtbot/hallway_map_serial_2
+    #map_file_name: /home/gunnar/kridtbot_ws/src/kridtbot/hallway_map_serial_2
 
     debug_logging: false
     throttle_scans: 1

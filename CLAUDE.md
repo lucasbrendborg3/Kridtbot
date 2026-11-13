@@ -8,7 +8,7 @@ CAN interfaces are real hardware, so launching things moves motors.
 
 ```bash
 source /opt/ros/jazzy/setup.bash
-cd ~/ros_ws && colcon build --symlink-install --packages-select <pkg>   # build only what you changed
+cd ~/kridtbot_ws && colcon build --symlink-install --packages-select <pkg>   # build only what you changed
 source install/setup.bash
 ros2 launch kridtbot launch_kridtbot.launch.py use_odrive:=true          # rover with suspension
 ros2 launch kridtbot main.launch.py                                      # rover + arm + weeding mission
@@ -79,5 +79,5 @@ Third-party, unmodified sensor / SLAM stack: `livox_ros_driver2` + `Livox-SDK2` 
 - `robot_description` is passed as a plain string (`ParameterValue(..., value_type=str)`), because a `: ` in the URDF breaks YAML parsing.
 - `suspension_controller` crashes the controller manager if its joints are missing, so it is only spawned when the ODrives are present.
 - Comments in this workspace explain *why* (measured torques, observed failures). Keep that style when editing.
-- The whole workspace is one git repo (`~/ros_ws`, GitHub lucasbrendborg3/Kridtbot, public). Third-party packages are vendored as plain folders. Their upstream commits are in `THIRD_PARTY.md`. Keep that table up to date when a driver is updated from upstream.
+- The whole workspace is one git repo (`~/kridtbot_ws`, GitHub lucasbrendborg3/Kridtbot, public). Third-party packages are vendored as plain folders. Their upstream commits are in `THIRD_PARTY.md`. Keep that table up to date when a driver is updated from upstream.
 - Old SLAM maps are only in git history, under the tag `maps-archive`.
