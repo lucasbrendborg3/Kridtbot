@@ -1,0 +1,8 @@
+<library path="suspension_controller">
+  <class
+    name="suspension_controller/SuspensionController"
+    type="suspension_controller::SuspensionController"
+    base_class_type="controller_interface::ControllerInterface">
+    <description>Suspension controller plugin</description>
+  </class>
+</library>

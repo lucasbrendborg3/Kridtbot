@@ -1,0 +1,116 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- Import ros2_control -->
+  <xacro:include filename="$(find myactuator_rmd_description)/urdf/myactuator_rmd.ros2_control.xacro" />
+
+  <!-- Macro for inertia matrix for cylinder around its center -->
+  <xacro:macro name="cylinder_inertial" params="m x y z radius height">
+    <inertial>
+      <mass value="${m}"/>
+      <origin xyz="${x} ${y} ${z}" rpy="0 0 0"/>
+      <inertia ixx="${1/12*m*(3*radius*radius+height*height)}" ixy="0.0" ixz="0.0"
+               iyy="${1/12*m*(3*radius*radius+height*height)}" iyz="0.0"
+               izz="${1/2*m*radius*radius}"/>
+    </inertial>
+  </xacro:macro>
+
+  <!-- Actuator geometry -->
+  <xacro:macro name="myactuator_rmd" params="prefix joint_name 
+                                             simulation ifname actuator_id
+                                             velocity_alpha:=0.1 effort_alpha:=0.1
+                                             torque_constant
+                                             timeout
+                                             limit_effort limit_lower limit_upper
+                                             limit_velocity
+                                             visual
+                                             radius_1 height_1
+                                             radius_2 height_2
+                                             radius_3 height_3 mass">
+    
+    <!-- Compute the inertial properties of the different parts of the actuator assuming uniform density -->
+    <xacro:property name="volume_1" value="${radius_1*radius_1*pi*height_1}"/>
+    <xacro:property name="volume_2" value="${radius_2*radius_2*pi*height_2}"/>
+    <xacro:property name="volume_3" value="${radius_3*radius_3*pi*height_3}"/>
+    <xacro:property name="volume_1_2_3" value="${volume_1+volume_2+volume_3}"/>
+    <xacro:property name="mass_1" value="${volume_1/volume_1_2_3*mass}"/>
+    <xacro:property name="mass_2" value="${volume_2/volume_1_2_3*mass}"/>
+    <xacro:property name="mass_3" value="${volume_3/volume_1_2_3*mass}"/>
+
+    <link name="${prefix}actuator_backplate">
+      <visual>
+        <geometry>
+          <mesh filename="file://${visual}"/>
+        </geometry>
+      </visual>
+      <collision>
+        <origin xyz="0 0 ${height_1/2}" rpy="0 0 0"/>
+        <geometry>
+          <cylinder length="${height_1}" radius="${radius_1}"/>
+        </geometry>
+      </collision>
+      <xacro:cylinder_inertial m="${mass_1}" x="0" y="0" z="${height_1/2}" 
+                               radius="${radius_1}" height="${height_1}"/>
+    </link>
+
+    <link name="${prefix}actuator_back_flange">
+      <collision>
+        <origin xyz="0 0 ${height_2/2}" rpy="0 0 0"/>
+        <geometry>
+          <cylinder length="${height_2}" radius="${radius_2}"/>
+        </geometry>
+      </collision>
+      <xacro:cylinder_inertial m="${mass_2}" x="0" y="0" z="${height_2/2}" 
+                               radius="${radius_2}" height="${height_2}"/>
+    </link>
+
+    <joint name="${prefix}actuator_backplate_to_${prefix}actuator_back_flange" type="fixed">
+      <origin xyz="0 0 ${height_1}" rpy="0 0 0" />
+      <parent link="${prefix}actuator_backplate" />
+      <child link="${prefix}actuator_back_flange" />
+    </joint>
+
+    <link name="${prefix}actuator_front_flange"/>
+
+    <joint name="${prefix}actuator_back_flange_to_${prefix}actuator_front_flange" type="fixed">
+      <origin xyz="0 0 ${height_2}" rpy="0 0 0" />
+      <parent link="${prefix}actuator_back_flange" />
+      <child link="${prefix}actuator_front_flange" />
+    </joint>
+
+    <link name="${prefix}actuator_shaft">
+      <collision>
+        <origin xyz="0 0 ${height_3/2}" rpy="0 0 0"/>
+        <geometry>
+          <cylinder length="${height_3}" radius="${radius_3}"/>
+        </geometry>
+      </collision>
+      <xacro:cylinder_inertial m="${mass_3}" x="0" y="0" z="${height_3/2}" 
+                               radius="${radius_3}" height="${height_3}"/>
+    </link>
+
+    <!-- Joint has to be mounted to links with inertial properties  -->
+    <joint name="${prefix}${joint_name}" type="revolute">
+      <origin xyz="0 0 ${height_2}" rpy="0 0 0" />
+      <parent link="${prefix}actuator_back_flange" />
+      <child link="${prefix}actuator_shaft" />
+      <axis xyz="0 0 1"/>
+      <limit effort="${limit_effort}" lower="${limit_lower}" upper="${limit_upper}" velocity="${limit_velocity}"/>
+    </joint>
+
+    <link name="${prefix}actuator_shaft_flange"/>
+
+    <joint name="${prefix}actuator_shaft_to_${prefix}actuator_shaft_flange" type="fixed">
+      <origin xyz="0 0 ${height_3}" rpy="0 0 0" />
+      <parent link="${prefix}actuator_shaft" />
+      <child link="${prefix}actuator_shaft_flange" />
+    </joint>
+
+    <!-- ros2_control configuration -->
+    <xacro:myactuator_rmd_ros2_control name="${prefix}${joint_name}_ros2_control" joint_name="${prefix}${joint_name}" simulation="${simulation}"
+                                       ifname="${ifname}" actuator_id="${actuator_id}"
+                                       velocity_alpha="${velocity_alpha}" effort_alpha="${effort_alpha}"
+                                       torque_constant="${torque_constant}" timeout="${timeout}"/>
+  </xacro:macro>
+
+</robot>
