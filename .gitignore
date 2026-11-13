@@ -1,0 +1,12 @@
+# colcon output
+/build/
+/install/
+/log/
+# stray build folders inside packages
+/src/myactuator_rmd/build/
+
+__pycache__/
+*.pyc
+.claude/settings.local.json
+/.vscode/
+/src/ros-imu-bno055/.vscode/
