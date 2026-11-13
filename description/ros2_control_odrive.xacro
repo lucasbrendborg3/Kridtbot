@@ -4,12 +4,34 @@
     <ros2_control name="odrive_controller" type="system">
         <hardware>
             <plugin>odrive_ros2_control_plugin/ODriveHardwareInterface</plugin>
-            <param name="can">can_drive</param>
+            <param name="can">can_odrive</param>
+            <!-- Position moves go through the ODrive's trapezoidal trajectory planner
+                 (its trap_traj vel/accel/decel limits apply); "passthrough" sends them directly -->
+            <param name="position_input_mode">trap_traj</param>
+            <!-- Trajectory planner limits sent to every ODrive (otherwise the ODrives' own settings apply,
+                 whose defaults capped the legs at ~5 mm/s). Speed in m/s, acceleration = deceleration in m/s^2 -->
+            <param name="traj_vel_limit">0.1</param>
+            <param name="traj_accel_limit">0.3</param>
+            <!-- false: a leg no controller is using (start-up, between controllers, after the launch
+                 stops) holds its position; true: it goes idle, and the rover's weight can push it down -->
+            <param name="idle_when_unused">false</param>
+            <!-- Lower position limit per leg = bottom end stop + margin, written by
+                 "ros2 run kridtbot calibrate_suspension" (run it after every ODrive power-up).
+                 No fallback: a leg missing from this file has no lower limit and a warning is logged.
+                 The upper limit is the position "max" of each joint below (the top stop is never measured). -->
+            <param name="limits_file">$(env HOME)/.ros/kridtbot/suspension_limits.yaml</param>
+            <!-- Ctrl+C / launch shutdown: drive every leg down to its lower soft limit from limits_file
+                 (legs without a calibrated lower limit are not moved), all together on a ramp at
+                 park_speed [m/s], then hold there. A leg needing more than park_max_torque [Nm] is
+                 stopped; after park_timeout [s] the legs hold wherever they got to. -->
+            <param name="park_on_shutdown">true</param>
+            <param name="park_speed">0.04</param>
+            <param name="park_timeout">8.0</param>
+            <param name="park_max_torque">0.8</param>
         </hardware>
         <joint name="left_rear_linear">
             <param name="node_id">1</param>
             <command_interface name="position">
-                <param name="min">-0.005</param>
                 <param name="max">0.11</param>
             </command_interface>
             <command_interface name="velocity"/>
@@ -21,7 +43,6 @@
         <joint name="left_front_linear"> 
             <param name="node_id">0</param>
             <command_interface name="position">
-                <param name="min">-0.005</param>
                 <param name="max">0.11</param>
             </command_interface>
             <command_interface name="velocity"/>
@@ -33,7 +54,6 @@
         <joint name="right_rear_linear">
             <param name="node_id">2</param>
             <command_interface name="position">
-                <param name="min">-0.005</param>
                 <param name="max">0.11</param>
             </command_interface>
             <command_interface name="velocity">
@@ -47,7 +67,6 @@
         <joint name="right_front_linear">
             <param name="node_id">3</param>
             <command_interface name="position">
-                <param name="min">-0.005</param>
                 <param name="max">0.11</param>
             </command_interface>
             <command_interface name="velocity"/>

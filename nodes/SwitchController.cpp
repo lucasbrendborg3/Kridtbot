@@ -46,9 +46,12 @@ private:
   void switch_controller()
   {
     auto request = std::make_shared<controller_manager_msgs::srv::SwitchController::Request>();
-    request->strictness = controller_manager_msgs::srv::SwitchController::Request::BEST_EFFORT;
+    // STRICT: switch both controllers or neither. With BEST_EFFORT, pressing L1 without the
+    // suspension_controller loaded (active_suspension:=false) deactivated the joystick height
+    // control and left the suspension without any controller.
+    request->strictness = controller_manager_msgs::srv::SwitchController::Request::STRICT;
 
-    if (not use_suspension_) {
+    if (use_suspension_) {
       request->deactivate_controllers = {"linear_position_control_joy"};
       request->activate_controllers = {"suspension_controller"};
     } else {
@@ -66,29 +69,31 @@ private:
         if (future.get()->ok) {
           RCLCPP_INFO(this->get_logger(), "Controller switch succeeded.");
         } else {
-          RCLCPP_ERROR(this->get_logger(), "Controller switch failed.");
+          use_suspension_ = !use_suspension_;   // nothing changed, so neither does our idea of what's active
+          RCLCPP_ERROR(this->get_logger(), "Controller switch failed (is suspension_controller loaded? It needs "
+            "active_suspension:=true). Still using: %s", use_suspension_ ? "suspension_controller" : "linear_position_control_joy");
         }
       });
   }
 
   void deactivate_suspension_at_start()
   {
-    timer_->cancel();
-
-    auto request = std::make_shared<controller_manager_msgs::srv::SwitchController::Request>();
-    request->deactivate_controllers = {"suspension_controller"};
-    request->activate_controllers = {"linear_position_control_joy"};
-    request->strictness = controller_manager_msgs::srv::SwitchController::Request::BEST_EFFORT;
-
-    if (!client_->wait_for_service(std::chrono::seconds(2))) {
-      RCLCPP_ERROR(this->get_logger(), "Startup: service not available");
+    if (!client_->service_is_ready()) {
+      RCLCPP_WARN(this->get_logger(), "Startup: service not available yet, retrying...");
       return;
     }
+    timer_->cancel();
+
+    // Both controllers are spawned --inactive, so nothing needs deactivating here (and
+    // suspension_controller may not even be loaded) - just activate the default, joystick one.
+    auto request = std::make_shared<controller_manager_msgs::srv::SwitchController::Request>();
+    request->activate_controllers = {"linear_position_control_joy"};
+    request->strictness = controller_manager_msgs::srv::SwitchController::Request::BEST_EFFORT;
 
     client_->async_send_request(request,
       [this](rclcpp::Client<controller_manager_msgs::srv::SwitchController>::SharedFuture future) {
         if (future.get()->ok) {
-          RCLCPP_INFO(this->get_logger(), "Startup: suspension_controller deactivated.");
+          RCLCPP_INFO(this->get_logger(), "Startup: linear_position_control_joy activated.");
         } else {
           RCLCPP_ERROR(this->get_logger(), "Startup: controller switch failed.");
         }

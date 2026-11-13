@@ -62,6 +62,12 @@ install(TARGETS
   DESTINATION lib/${PROJECT_NAME}
 )
 
+# Suspension homing/calibration: ros2 run kridtbot calibrate_suspension
+install(PROGRAMS scripts/calibrate_suspension.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME calibrate_suspension
+)
+
 
 
 if(BUILD_TESTING)

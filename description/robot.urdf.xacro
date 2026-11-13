@@ -3,7 +3,10 @@
 
     <!-- Arguments -->
     <xacro:arg name="use_sim_system" default="false"/>
-    <xacro:arg name="active_suspension" default="true"/>
+    <xacro:arg name="active_suspension" default="false"/>
+    <xacro:arg name="use_odrive" default="false"/>
+    <xacro:arg name="mock_left_wheels" default="false"/>
+    <xacro:arg name="mock_right_wheels" default="false"/>
 
     <!-- URDF Robot Description-->
     <xacro:include filename="robot_core.xacro" />
@@ -19,7 +22,9 @@
     </xacro:if>
     <xacro:unless value="$(arg use_sim_system)">
         <xacro:include filename="ros2_control_myactuator.xacro"/>
-        <!--  <xacro:include filename="ros2_control_odrive.xacro" />-->
+        <xacro:if value="$(arg use_odrive)">
+            <xacro:include filename="ros2_control_odrive.xacro" />
+        </xacro:if>
     </xacro:unless>
 
 </robot> 

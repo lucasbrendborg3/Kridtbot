@@ -39,6 +39,9 @@ linear_position_pub:
     max_value: 0.10
     axis_index_x: 3
     axis_index_y: 4
+    height_speed: 0.1      # [m/s] base height change while triangle/cross is held (was 10 mm per joystick message = ~200 mm/s)
+    max_leg_speed: 0.1     # [m/s] fastest any leg may move (stick tilt and height changes)
+    tilt_range: 0.1        # [m] leg offset at full stick deflection
 
     
     

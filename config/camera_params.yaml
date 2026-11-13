@@ -270,32 +270,3 @@ ros__parameters:
     i_update_ros_base_time_on_ros_msg: false
     i_width: 1280
     use_sim_time: false
-  tof:
-    i_publish_topic: true
-    i_synced: true
-    i_calibration_file: ""
-    i_low_bandwidth: false # enabling low bandwidth mode might currently not work properly
-    i_low_bandwidth_bitrate: 0
-    i_low_bandwidth_ffmpeg_encoder: libx264
-    i_low_bandwidth_profile: 4
-    i_low_bandwidth_quality: 80
-    i_get_base_device_timestamp: false
-    i_update_ros_base_time_on_ros_msg: false
-    i_enable_lazy_publisher: false
-    i_add_exposure_offset: false
-    i_exposure_offset: 0
-    i_reverse_stereo_socket_order: false
-    i_board_socket_id: 0
-    i_max_q_size: 8
-    i_width: 640
-    i_height: 480
-    i_fps: 30.0
-    i_enable_optical_correction: false
-    i_enable_fppn_correction: false
-    i_enable_temperature_correction: false
-    i_enable_wiggle_correction: false
-    i_enable_phase_unwrapping: false
-    i_enable_phase_shuffle_temporal_filter: true
-    i_phase_unwrapping_level: 4
-    i_phase_unwrap_error_threshold: 100
-    i_median_filter: MEDIAN_OFF

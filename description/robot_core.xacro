@@ -18,12 +18,13 @@
     <color rgba="${0/255} ${0/255} ${255/255} 0.6" />
   </material>
 
-  <!-- Suspension actuator joints are prismatic when actively controlled (position/
-       velocity/effort via ros2_control), or fixed for a passive suspension. -->
+  <!-- Suspension actuator joints are prismatic whenever they can move: driven by the ODrives
+       (use_odrive) or by the active suspension (active_suspension, also used in simulation).
+       Otherwise they are fixed, for a passive suspension. -->
   <xacro:property name="linear_joint_type" value="prismatic"/>
-  <xacro:unless value="$(arg active_suspension)">
+  <xacro:if value="${'$(arg active_suspension)'.lower() != 'true' and '$(arg use_odrive)'.lower() != 'true'}">
     <xacro:property name="linear_joint_type" value="fixed"/>
-  </xacro:unless>
+  </xacro:if>
 
   <!-- ________BASE LINK__________-->
   <link name="base_link" />

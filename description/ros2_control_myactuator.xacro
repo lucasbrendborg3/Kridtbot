@@ -1,79 +1,51 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
-    <ros2_control name="myactuator_controller_right_front_wheel" type="actuator">
-        <hardware>
-            <plugin>myactuator_rmd_hardware/MyActuatorRmdHardwareInterface</plugin>
-            <param name="ifname">can_fr</param>
-            <param name="actuator_id">5</param>
-            <param name="torque_constant">2.023914969</param>
-            <param name="velocity_alpha">0.1</param>
-            <param name="effort_alpha">0.1</param>
-            <param name="direction">1.0</param>
-        </hardware>
-        <joint name="right_front_wheel">
-            <command_interface name="position"/>
-            <command_interface name="velocity"/>
-            <command_interface name="effort"/>
-            <state_interface name="position"/>
-            <state_interface name="velocity"/>
-            <state_interface name="effort"/>
-        </joint>
-    </ros2_control>
-    <ros2_control name="myactuator_controller_right_rear_wheel" type="actuator">
-        <hardware>
-            <plugin>myactuator_rmd_hardware/MyActuatorRmdHardwareInterface</plugin>
-            <param name="ifname">can_rr</param>
-            <param name="actuator_id">7</param>
-            <param name="torque_constant">2.023914969</param>
-            <param name="velocity_alpha">0.1</param>
-            <param name="effort_alpha">0.1</param>
-            <param name="direction">1.0</param>
-        </hardware>
-        <joint name="right_rear_wheel">
-            <command_interface name="position"/>
-            <command_interface name="velocity"/>
-            <command_interface name="effort"/>
-            <state_interface name="position"/>
-            <state_interface name="velocity"/>
-            <state_interface name="effort"/>
-        </joint>
-    </ros2_control>
-    <ros2_control name="myactuator_controller_left_front_wheel" type="actuator">
-        <hardware>
-            <plugin>myactuator_rmd_hardware/MyActuatorRmdHardwareInterface</plugin>
-            <param name="ifname">can_fl</param>
-            <param name="actuator_id">4</param>
-            <param name="torque_constant">2.023914969</param>
-            <param name="velocity_alpha">0.1</param>
-            <param name="effort_alpha">0.1</param>
-            <param name="direction">-1.0</param>
-        </hardware>
-        <joint name="left_front_wheel">
-            <command_interface name="position"/>
-            <command_interface name="velocity"/>
-            <command_interface name="effort"/>
-            <state_interface name="position"/>
-            <state_interface name="velocity"/>
-            <state_interface name="effort"/>
-        </joint>
-    </ros2_control>
-    <ros2_control name="myactuator_controller_left_rear_wheel" type="actuator">
-        <hardware>
-            <plugin>myactuator_rmd_hardware/MyActuatorRmdHardwareInterface</plugin>
-            <param name="ifname">can_rl</param>
-            <param name="actuator_id">6</param>
-            <param name="torque_constant">2.023914969</param>
-            <param name="velocity_alpha">0.1</param>
-            <param name="effort_alpha">0.1</param>
-            <param name="direction">-1.0</param>
-        </hardware>
-        <joint name="left_rear_wheel">
-            <command_interface name="position"/>
-            <command_interface name="velocity"/>
-            <command_interface name="effort"/>
-            <state_interface name="position"/>
-            <state_interface name="velocity"/>
-            <state_interface name="effort"/>
-        </joint>
-    </ros2_control>
+    <!-- One CAN bus per side: can_r = right front (ID 5) + right rear (ID 7),
+         can_l = left front (ID 4) + left rear (ID 6). Each wheel opens its own socket
+         on the shared bus and only listens for its own motor's replies.
+
+         mock:=true replaces a wheel with ros2_control's simulated hardware (it simply follows
+         its velocity command), so the robot can be tested with one side's adapter unplugged.
+         Set per side with the launch arguments mock_left_wheels / mock_right_wheels. -->
+    <xacro:macro name="myactuator_wheel" params="joint ifname actuator_id direction mock">
+        <xacro:unless value="${mock}">
+            <ros2_control name="myactuator_controller_${joint}" type="actuator">
+                <hardware>
+                    <plugin>myactuator_rmd_hardware/MyActuatorRmdHardwareInterface</plugin>
+                    <param name="ifname">${ifname}</param>
+                    <param name="actuator_id">${actuator_id}</param>
+                    <param name="torque_constant">2.023914969</param>
+                    <param name="velocity_alpha">0.1</param>
+                    <param name="effort_alpha">0.1</param>
+                    <param name="direction">${direction}</param>
+                </hardware>
+                <joint name="${joint}">
+                    <command_interface name="position"/>
+                    <command_interface name="velocity"/>
+                    <command_interface name="effort"/>
+                    <state_interface name="position"/>
+                    <state_interface name="velocity"/>
+                    <state_interface name="effort"/>
+                </joint>
+            </ros2_control>
+        </xacro:unless>
+        <xacro:if value="${mock}">
+            <ros2_control name="mock_${joint}" type="system">
+                <hardware>
+                    <plugin>mock_components/GenericSystem</plugin>
+                    <param name="calculate_dynamics">true</param>
+                </hardware>
+                <joint name="${joint}">
+                    <command_interface name="velocity"/>
+                    <state_interface name="position"/>
+                    <state_interface name="velocity"/>
+                </joint>
+            </ros2_control>
+        </xacro:if>
+    </xacro:macro>
+
+    <xacro:myactuator_wheel joint="right_front_wheel" ifname="can_r" actuator_id="5" direction="1.0"  mock="$(arg mock_right_wheels)"/>
+    <xacro:myactuator_wheel joint="right_rear_wheel"  ifname="can_r" actuator_id="7" direction="1.0"  mock="$(arg mock_right_wheels)"/>
+    <xacro:myactuator_wheel joint="left_front_wheel"  ifname="can_l" actuator_id="4" direction="-1.0" mock="$(arg mock_left_wheels)"/>
+    <xacro:myactuator_wheel joint="left_rear_wheel"   ifname="can_l" actuator_id="6" direction="-1.0" mock="$(arg mock_left_wheels)"/>
 </robot>
