@@ -305,6 +305,50 @@ namespace myactuator_rmd {
       float getPosition() const noexcept;
   };
 
+  /**\class SetPositionIncrementalRequest
+   * \brief
+   *    Request for moving the actuator by a given angle relative to its current position with a given maximum speed
+  */
+  class SetPositionIncrementalRequest: public SingleMotorRequest<CommandType::INCREMENTAL_POSITION_CLOSED_LOOP_CONTROL> {
+    public:
+      /**\fn SetPositionIncrementalRequest
+       * \brief
+       *    Class constructor
+       *
+       * \param[in] increment
+       *    The angle to move by in degree
+       * \param[in] max_speed
+       *    The maximum speed for the motion in degree per second
+      */
+      SetPositionIncrementalRequest(float const increment, float const max_speed);
+      SetPositionIncrementalRequest() = delete;
+      SetPositionIncrementalRequest(SetPositionIncrementalRequest const&) = default;
+      SetPositionIncrementalRequest& operator = (SetPositionIncrementalRequest const&) = default;
+      SetPositionIncrementalRequest(SetPositionIncrementalRequest&&) = default;
+      SetPositionIncrementalRequest& operator = (SetPositionIncrementalRequest&&) = default;
+      using SingleMotorRequest::SingleMotorRequest;
+
+      /**\fn getMaxSpeed
+       * \brief
+       *    Get the maximum speed
+       *
+       * \return
+       *    The maximum speed for the motion in degree per second
+      */
+      [[nodiscard]]
+      float getMaxSpeed() const noexcept;
+
+      /**\fn getIncrement
+       * \brief
+       *    Get the position increment
+       *
+       * \return
+       *    The angle to move by in degree
+      */
+      [[nodiscard]]
+      float getIncrement() const noexcept;
+  };
+
   /**\class SetTimeoutRequest
    * \brief
    *    Request for setting the communication interruption protection time setting

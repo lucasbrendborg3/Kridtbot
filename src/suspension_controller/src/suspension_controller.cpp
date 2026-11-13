@@ -5,7 +5,7 @@
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2/LinearMath/Matrix3x3.h>
 #include <mutex>
-#include <ceres/ceres.h>
+
 
 
 
@@ -19,6 +19,12 @@
 
 // - yaw the correct sign?
 
+
+// COMMENTS:
+// - 1. Performs well
+// - 2. unstable: maybe due to lqr cannot be tuned on no dynamics nor can pole placement
+// - 3: to idealized to work in reality, since itsnt robust for terrain or offset from targets. Open-loop control which works flat and stationary
+// - 4: unstable, since the terrain estimation is non-sparse due to insuffienct lasso in c++
 
 
 
@@ -71,7 +77,8 @@ namespace suspension_controller {
         auto_declare<std::vector<double>>("K_P", {1.0, 1.0, 1.0, 0.0});
         auto_declare<std::vector<double>>("K_I", {0.0, 0.0, 0.0, 0.0});
         auto_declare<std::vector<double>>("K_D", {0.0, 0.0, 0.0, 0.0});
-
+        auto_declare<std::vector<double>>("Q", {0.1, 0.0, 0.0, 0.0, 0.1, 0.0, 0.0, 0.0, 0.1});
+        auto_declare<double>("R", {1.0});
 
           // Kalman Filter defaults
           P_cov_ = Eigen::Matrix4d::Identity();  // initial covariance matrix
@@ -81,6 +88,8 @@ namespace suspension_controller {
             0.0,                  // z (assumed perfect)
             M_PI / 180.0 * 0.1    // yaw noise   [rad]
           };
+
+        
 
         // MISSING: declare what joints you are controlling from input
         // ALSO: can PID be overridden by yaml??
@@ -156,12 +165,24 @@ namespace suspension_controller {
         }
 
         // LQR Gains
+        auto q = get_node()->get_parameter("Q").as_double_array();
+        if (q.size() != 9) {
+          RCLCPP_ERROR(get_node()->get_logger(), "Q matrix not correct size");
+          return controller_interface::CallbackReturn::ERROR;
+        }
         Q_ = Eigen::Matrix3d::Zero();
-        Q_(0,0) = 1.0;   // theta error penalty
-        Q_(1,1) = 1.0;   // roll error penalty
-        Q_(2,2) = 0.1;    // z error penalty
+        int index_hold = 0;
+        for (int i = 0; i < 3; ++i) {
+          for (int j = 0; j < 3; ++j) {
+            Q_(i,j) = q[index_hold];
+            index_hold +=1;
+          }
+        }
 
-        R_ = 1 * Eigen::Matrix4d::Identity();  // actuator penalty
+
+        auto r = get_node()->get_parameter("R").as_double();
+
+        R_ = r * Eigen::Matrix4d::Identity();  // actuator penalty
 
         // Reset error terms
         e_prev_ = Eigen::Vector3d::Zero();
@@ -195,7 +216,7 @@ namespace suspension_controller {
     
       // Connect to IMU topic
       imu_sub_ = get_node()->create_subscription<sensor_msgs::msg::Imu>(
-        "/imu_sensor_broadcaster/imu", 10,
+        "/imu_sensor_broadcaster/imu", 1,
         [this](const sensor_msgs::msg::Imu::SharedPtr msg) {
           std::scoped_lock lock(imu_mutex_);
       
@@ -206,8 +227,8 @@ namespace suspension_controller {
           m.getRPY(roll, pitch, yaw);
       
           // Gz to FK frame adjustment (180° around X)
-          pitch = -pitch; 
-          roll  = -roll; // WHY ROLL NEGATIVE WHEN ROTATION AROUND X!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+          pitch = pitch; 
+          roll  = roll; // WHY ROLL NEGATIVE WHEN ROTATION AROUND X!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
           yaw = yaw; // Correct?
       
           // Median filtering - spike removal
@@ -251,12 +272,30 @@ namespace suspension_controller {
         // Create a kalman est publisher
         kalman_pub_ = get_node()->create_publisher<std_msgs::msg::Float64MultiArray>(
             "kalman_estimate", 10);
-          
+        
+        target_position_sub_ = get_node()->create_subscription<std_msgs::msg::Float64MultiArray>(
+          "/suspension_controller/target", 1,
+          std::bind(
+            &SuspensionController::refference_pose_callback, this, std::placeholders::_1));
       
             
       return CallbackReturn::SUCCESS;
     }
     
+    void SuspensionController::refference_pose_callback(
+      const std_msgs::msg::Float64MultiArray::SharedPtr msg)
+      {
+        // Check if the message has the correct size
+        if (msg->data.size() != 4) {
+          RCLCPP_ERROR(get_node()->get_logger(), "Received invalid reference pose size: %zu", msg->data.size());
+          return;
+        }
+        for (size_t i = 0; i < 4; ++i) {
+          P_r_[i] = msg->data[i];
+        }
+        //RCLCPP_INFO(get_node()->get_logger(), "Received reference pose: %.2f, %.2f, %.2f, %.2f", P_r_[0], P_r_[1], P_r_[2], P_r_[3]);
+      } 
+  
 
 
     // Func 4: deactivate - empty
@@ -347,12 +386,16 @@ namespace suspension_controller {
         // Step 4: PID error computation
         Eigen::Vector3d P_r_short = P_r_.head<3>(); 
         Eigen::Vector3d e = P_r_short - P_mea;        
-        RCLCPP_INFO(get_node()->get_logger(), "err p %.2f", e[0]);
-        RCLCPP_INFO(get_node()->get_logger(), "err r %.2f", e[1]);
-        RCLCPP_INFO(get_node()->get_logger(), "err z %.2f", e[2]);
         Eigen::Vector3d e_dot = (e - e_prev_) / dt;
-        e_int_ += e * dt;
+        if (d_current[0] < 0.02 || d_current[0] > 0.098 || d_current[1] < 0.02 || d_current[1] > 0.098 || d_current[2] < 0.02 || d_current[2] > 0.098 || d_current[3] < 0.02 || d_current[3] > 0.098) {
+            e_int_ += e * 0.0;
+        }else{
+            e_int_ += e * dt;
+        }
         e_prev_ = e;
+        RCLCPP_INFO(get_node()->get_logger(), "err p %.2f", e_int_[0]);
+        RCLCPP_INFO(get_node()->get_logger(), "err r %.2f", e_int_[1]);
+        RCLCPP_INFO(get_node()->get_logger(), "err z %.2f", e_int_[2]);
         
 
         // Control signal
@@ -362,12 +405,13 @@ namespace suspension_controller {
         // Step 5: Convert to actuator delta commands
         Eigen::Vector4d delta_d = J_inv * u;
         
-        const double delta_threshold = 0.002;  // 2 mm - minimum delta_d magnitude worth updating
+        const double delta_threshold = 0.00;  // 2 mm - minimum delta_d magnitude worth updating
         for (int i = 0; i < 4; ++i) {
           if (std::abs(delta_d[i]) < delta_threshold) {
             delta_d[i] = 0.0;
-          }
-        }
+          }else if (std::abs(delta_d[i]) > 0.1){
+            delta_d[i] = 0.0;
+        }}
 
 
         // Check for NaN values in delta_d
@@ -377,15 +421,15 @@ namespace suspension_controller {
         }
 
         // Print outs (Can delete)
-        RCLCPP_INFO(get_node()->get_logger(), "pitch %.2f", P_mea[0]*180/M_PI);
-        RCLCPP_INFO(get_node()->get_logger(), "roll %.2f", P_mea[1]*180/M_PI);
-        RCLCPP_INFO(get_node()->get_logger(), "z %.2f", P_mea[2]);
+        //RCLCPP_INFO(get_node()->get_logger(), "pitch %.2f", P_mea[0]*180/M_PI);
+        //RCLCPP_INFO(get_node()->get_logger(), "roll %.2f", P_mea[1]*180/M_PI);
+        //RCLCPP_INFO(get_node()->get_logger(), "z %.2f", P_mea[2]);
 
 
-        RCLCPP_INFO(get_node()->get_logger(), "delta_dLF %.2f", delta_d[0]);
-        RCLCPP_INFO(get_node()->get_logger(), "delta_dLR %.2f", delta_d[1]);  
-        RCLCPP_INFO(get_node()->get_logger(), "delta_dRF %.2f", delta_d[2]);
-        RCLCPP_INFO(get_node()->get_logger(), "delta_dRR %.2f", delta_d[3]);
+        //RCLCPP_INFO(get_node()->get_logger(), "delta_dLF %.2f", delta_d[0]);
+        //RCLCPP_INFO(get_node()->get_logger(), "delta_dLR %.2f", delta_d[1]);  
+        //RCLCPP_INFO(get_node()->get_logger(), "delta_dRF %.2f", delta_d[2]);
+        //RCLCPP_INFO(get_node()->get_logger(), "delta_dRR %.2f", delta_d[3]);
         Eigen::Vector4d d_new = d_current + delta_d;
 
         // Step 6: Clamp actuator positions to valid range
@@ -420,35 +464,59 @@ namespace suspension_controller {
       Eigen::Matrix3d C = Eigen::Matrix3d::Identity();
       // C = C.topRows<2>(); // θ, φ
       Eigen::Matrix<double, 3, 4> D = Eigen::Matrix<double, 3, 4>::Zero();
-  
+      
+      
       // Step 3: Solve LQR
       K_ = solveContinuousLQR(A, B, Q_, R_);
       
       // Step 4: Closed-loop system for feedforward
       //Eigen::Matrix<double, 3, 4> BK = B * K_;
-      Eigen::Matrix3d A_cl = A - (B*K_);
-      Eigen::Matrix<double, 3, 4> dcgain = A_cl.inverse() * B;
-      K0_ = dcgain.completeOrthogonalDecomposition().pseudoInverse();
+      //Eigen::Matrix3d A_cl = A - (B*K_);
+      //Eigen::Matrix<double, 3, 4> dcgain = A_cl.inverse() * B;
+      //K0_ = dcgain.completeOrthogonalDecomposition().pseudoInverse();
       
       // Step 5: Control law
       Eigen::Vector3d e = P_mea - P_r_.head<3>();
-      Eigen::Vector4d delta_d = -K_ * e; // + K0_ * P_r_;
-  
+
+      Eigen::Vector4d delta_d = -K_ * e; // K0_ * P_r_;
+
+      const double delta_threshold = 0.002;  // 2 mm - minimum delta_d magnitude worth updating
+      for (int i = 0; i < 4; ++i) {
+        if (std::abs(delta_d[i]) < delta_threshold) {
+          delta_d[i] = 0.0;
+        }
+      }
+
+      // Check for NaN values in delta_d
+      if (!delta_d.allFinite()){
+          RCLCPP_ERROR(get_node()->get_logger(), "delta_d contains NaNs! Skipping update.");
+          return;
+      }
+
+
       // Step 6: Apply delta and saturate
       Eigen::Vector4d d_new = d_current + delta_d;
-      for (int i = 0; i < 4; ++i)
+      for (int i = 0; i < 4; ++i){
           d_new[i] = std::clamp(d_new[i], 0.0, 0.1);
-  
+      }
+      //RCLCPP_INFO(get_node()->get_logger(), "delta_dLF %.2f", d_new[0]);
+      //RCLCPP_INFO(get_node()->get_logger(), "delta_dLR %.2f", d_new[1]);  
+      //RCLCPP_INFO(get_node()->get_logger(), "delta_dRF %.2f", d_new[2]);
+      //RCLCPP_INFO(get_node()->get_logger(), "delta_dRR %.2f", d_new[3]);
       // Step 7: Send commands
       for (int i = 0; i < 4; ++i) {
           command_interfaces_[i].set_value(d_new[i]);
       }
-  }
+    }
+  
+  
   
 
     // Func 3: IK control
     void SuspensionController::runIKControl(const rclcpp::Duration& period) {
+        const double dt = period.seconds();
         // Step 1: Get IMU pose
+        Eigen::Vector4d d_new = Eigen::Vector4d::Zero(); 
         Eigen::Vector4d P_mea_f = getMeasuredChassisPose();
         Eigen::Vector3d P_mea(P_mea_f[0], P_mea_f[1], P_mea_f[2]); // [theta, roll, z] 
         
@@ -459,12 +527,61 @@ namespace suspension_controller {
         Eigen::Vector3d target_pose = P_r_.head<3>();  // [theta, roll, z] reference
         
         // Step 4: Solve full IK optimization to find next actuator state
-        Eigen::Vector4d d_new = solveSuspensionIK(target_pose, d_current);
+        bool with_feedback = true;
+
+        if (!with_feedback) {
+            // Use direct IK
+            d_new = solveSuspensionIK(target_pose, d_current);
+        } else if (with_feedback) {
+            // Use feedback IK
+            const double L = 0.377;  // nominal height [m]
+            const double pitch_err = target_pose(0)-P_mea_f[0];
+            const double roll_err = target_pose(1)-P_mea_f[1];
+            const double z_err = (target_pose(2)-P_mea_f[2]);
+            Eigen::Vector3d e = Eigen::Vector3d(pitch_err, roll_err, z_err);
+            Eigen::Vector3d e_dot = (e - e_prev_) / dt;
+            e_int_ += e * dt;
+            e_prev_ = e;
+            
+    
+            // Control signal
+        
+            Eigen::Vector3d u = K_P_.topLeftCorner<3,3>() * e + K_I_.topLeftCorner<3,3>()* e_int_.head<3>() + K_D_.topLeftCorner<3,3>() * e_dot;
+            //RCLCPP_INFO(get_node()->get_logger(), "pitch u %.2f", u[0]*180/M_PI);
+            //RCLCPP_INFO(get_node()->get_logger(), "Roll u %.2f", u[1]*180/M_PI);
+            //RCLCPP_INFO(get_node()->get_logger(), "z u %.2f", u[2]);
+            Eigen::Vector4d d_IK_feedback = solveSuspensionIK(Eigen::Vector3d (-pitch_err, -roll_err, target_pose(2)), d_current);
+            Eigen::Vector4d d_IK_target = solveSuspensionIK(target_pose, d_current);
+            Eigen::Vector4d delta_d = d_IK_feedback;
+            d_new = delta_d;
+        } else {
+            RCLCPP_ERROR(get_node()->get_logger(), "Invalid IK mode selected.");
+            return;
+        }
+        
+        
+        // Check for NaN values in delta_d
+        if (!d_new.allFinite()){
+            RCLCPP_ERROR(get_node()->get_logger(), "d_new contains NaNs! Skipping update.");
+            d_new = d_current;
+        }
+  
+
+        //RCLCPP_INFO(get_node()->get_logger(), "pitch %.2f", P_mea[0]*180/M_PI);
+        //RCLCPP_INFO(get_node()->get_logger(), "roll %.2f", P_mea[1]*180/M_PI);
+        //RCLCPP_INFO(get_node()->get_logger(), "z %.2f", P_mea[2]);
+
+
 
         // Step 5: Clamp actuator positions to physical limits
         for (int i = 0; i < 4; ++i) {
             d_new[i] = std::clamp(d_new[i], 0.0, 0.1); // <- real actuator limits!
         }
+        //RCLCPP_INFO(get_node()->get_logger(), "dLF %.2f", d_new[0]);
+        //RCLCPP_INFO(get_node()->get_logger(), "dLR %.2f", d_new[1]);  
+        //RCLCPP_INFO(get_node()->get_logger(), "dRF %.2f", d_new[2]);
+        //RCLCPP_INFO(get_node()->get_logger(), "dRR %.2f", d_new[3]);
+
 
         // Step 6: Send actuator commands
         for (int i = 0; i < 4; ++i) {
@@ -495,23 +612,33 @@ namespace suspension_controller {
       Eigen::Vector3d residual = P_mea - P_est;
   
       // Step 6: LASSO terrain estimation (simplified shrinkage)
-      Eigen::Vector4d weights(1.0, 1.0, 1.0, 1.0); // CHange
-      Eigen::Matrix<double, 3, 4> Jw = J;
-      for (int i = 0; i < 4; ++i)
-          Jw.col(i) /= weights[i];
+      //Eigen::Vector4d weights(1.0, 1.0, 1.0, 1.0); // CHange
+      //Eigen::Matrix<double, 3, 4> Jw = J;
+      //for (int i = 0; i < 4; ++i)
+      //    Jw.col(i) /= weights[i];
   
       // Use ridge regression as LASSO approximation 
-      Eigen::Matrix<double, 4, 4> reg = lambda_ * Eigen::Matrix4d::Identity();
+      //Eigen::Matrix<double, 4, 4> reg = lambda_ * Eigen::Matrix4d::Identity();
       //Eigen::Vector4d terrain_est = (Jw.transpose() * Jw + reg).ldlt().solve(Jw.transpose() * residual);
-      Eigen::Vector4d terrain_est = estimateTerrainLASSO(J, residual, weights, lambda_);
-      for (int i = 0; i < 4; ++i)
-          terrain_est[i] /= weights[i];
+      //Eigen::Vector4d terrain_est = estimateTerrainLASSO(J, residual, weights, lambda_);
+      //for (int i = 0; i < 4; ++i)
+      //    terrain_est[i] /= weights[i];
       
+      //Eigen::Vector4d terrain_est = solveSuspensionIK(residual, d_prev);
+
+       
+      Eigen::Vector4d tot = solveSuspensionIK(P_mea, d_prev);
+      Eigen::Vector4d terrain_est = tot - d_prev;
   
       // Step 7: PID control
-      Eigen::Vector3d e = P_r_.head<3>() - P_est;
+      //Eigen::Vector3d e = P_r_.head<3>() - P_est;  !!!!!! estimate pose or measured !!!!!!!!!!!!!!!!!!!!!!
+      Eigen::Vector3d e = P_r_.head<3>() - P_mea;
       Eigen::Vector3d e_dot = (e - e_prev_.head<3>()) / dt;
-      e_int_ += e * dt;
+      if (d_prev[0] < 0.02 || d_prev[0] > 0.98 || d_prev[1] < 0.02 || d_prev[1] > 0.98 || d_prev[2] < 0.02 || d_prev[2] > 0.98 || d_prev[3] < 0.02 || d_prev[3] > 0.98) {
+          e_int_ += e * 0.0;
+      }else{
+          e_int_ += e * dt;
+      }
       e_prev_ = e;
       
       Eigen::Vector3d u =
@@ -520,8 +647,41 @@ namespace suspension_controller {
           K_D_.topLeftCorner<3, 3>() * e_dot;
   
       Eigen::Matrix<double, 4, 3> J_pinv = J.completeOrthogonalDecomposition().pseudoInverse();
-      Eigen::Vector4d delta_d = J_pinv * (u - J * terrain_est);
+      Eigen::Vector4d delta_d = J_pinv * (u);// - J * terrain_est);
+
+      
+      const double delta_threshold = 0.00;  // 2 mm - minimum delta_d magnitude worth updating
+      for (int i = 0; i < 4; ++i) {
+        if (std::abs(delta_d[i]) < delta_threshold) {
+          delta_d[i] = 0.0;
+        }else if (std::abs(delta_d[i]) > 0.1){
+          delta_d[i] = 0.0;
+      }}
+
+
+
+      // Check for NaN values in delta_d
+      if (!delta_d.allFinite()){
+          RCLCPP_ERROR(get_node()->get_logger(), "delta_d contains NaNs! Skipping update.");
+          return;
+      }
+
+      // Print outs (Can delete)
+      //RCLCPP_INFO(get_node()->get_logger(), "u %.2f", u[0]);
+      //RCLCPP_INFO(get_node()->get_logger(), "pitch %.2f", P_mea[0]*180/M_PI);
+      //RCLCPP_INFO(get_node()->get_logger(), "roll %.2f", P_mea[1]*180/M_PI);
+      //RCLCPP_INFO(get_node()->get_logger(), "z %.2f", P_mea[2]);
+
+
+      //RCLCPP_INFO(get_node()->get_logger(), "delta_dLF %.2f", delta_d[0]);
+      //RCLCPP_INFO(get_node()->get_logger(), "delta_dLR %.2f", delta_d[1]);  
+      //RCLCPP_INFO(get_node()->get_logger(), "delta_dRF %.2f", delta_d[2]);
+      //RCLCPP_INFO(get_node()->get_logger(), "delta_dRR %.2f", delta_d[3]);
+
+
       Eigen::Vector4d d_new = d_prev + delta_d;
+
+      
   
       // Clamp actuator commands
       for (int i = 0; i < 4; ++i) {
@@ -602,70 +762,70 @@ namespace suspension_controller {
       Eigen::Vector4d d_prev = getActuatorPositions();    // [LF, LR, RF, RR]
       auto [theta_est, phi_est, psi_est, z_est, _, __] = suspensionFK(
           d_prev[0], d_prev[1], d_prev[2], d_prev[3]);
-      Eigen::Vector4d P_est_d(theta_est, phi_est, z_est, psi_est);
+      Eigen::Vector4d P_est(theta_est, phi_est, z_est, 0.0);
+      RCLCPP_INFO(get_node()->get_logger(), "z from FK %.2f", z_est);
     
-      // Step 2: Terrain estimation
-      Eigen::Matrix<double, 4, 4> J_est_d = manualJacobianFK4DOF(
-          d_prev[0], d_prev[1], d_prev[2], d_prev[3]);
-      Eigen::Vector4d weights(1.0, 0.1, 1.0, 1.0);
-      Eigen::Matrix<double, 4, 4> Jw = J_est_d;
-      for (int i = 0; i < 4; ++i) Jw.col(i) /= weights[i];
     
-      Eigen::Matrix4d reg = lambda_ * Eigen::Matrix4d::Identity();
-      Eigen::Vector4d residual = P_mea - P_est_d;
-      Eigen::Vector4d terrain_est = (Jw.transpose() * Jw + reg).ldlt()
-                                        .solve(Jw.transpose() * residual);
-      for (int i = 0; i < 4; ++i) terrain_est[i] /= weights[i];
-    
-      // Step 3: Updated FK with terrain
-      Eigen::Vector4d d_tot = d_prev + terrain_est;
-      auto [theta_full, phi_full, psi_full, z_full, __1, __2] = suspensionFK(
-          d_tot[0], d_tot[1], d_tot[2], d_tot[3]);
-      Eigen::Vector4d P_est(theta_full, phi_full, z_full, psi_full);
+      // Step 3:Jacobian
       Eigen::Matrix<double, 4, 4> J = manualJacobianFK4DOF(
-          d_tot[0], d_tot[1], d_tot[2], d_tot[3]);
+          d_prev[0], d_prev[1], d_prev[2], d_prev[3]);
     
       // Step 4: Kalman filtering
       Eigen::Matrix<double, 3, 4> C;
       C << 1, 0, 0, 0,
            0, 1, 0, 0,
-           0, 0, 0, 1;
-      Eigen::Matrix3d R;
-      R << std::pow(noise_std_[0], 2), 0, 0,
-           0, std::pow(noise_std_[1], 2), 0,
-           0, 0, std::pow(noise_std_[3], 2);
-      Eigen::Matrix4d Q = 0.000001 * Eigen::Matrix4d::Identity();
-    
-      Eigen::Matrix4d P_cov_min = J * P_cov_ * J.transpose() + Q;
-      Eigen::Vector3d y_meas(P_mea[0], P_mea[1], P_mea[3]);
+           0, 0, 0, 0;
+      Eigen::Matrix3d R_kal;
+      R_kal << 2.10e-04,  -1.79e-04,  0.0,
+          -1.79e-04,  1.52e-04,  0.0,
+          0.0,  0.0,  5.40e-04;
+      Eigen::Matrix4d Q_kal;
+      Q_kal << 6.13e-04,   -3.39e-04,   -3.09e-06,   0.0,
+          -3.39e-04,    1.98e-04,    1.79e-06,    0.0,
+          -3.09e-06,    1.79e-06,    4.37e-07,    0.0,
+          0.0,    0.0,    0.0,    7.91e-04;
+
+      Eigen::Matrix4d P_cov_min = J * P_cov_ * J.transpose() + Q_kal;
+      Eigen::Vector3d y_meas(P_mea[0], P_mea[1], 0.0);
       Eigen::Vector3d y_pred = C * P_est;
-      Eigen::Matrix<double, 4, 3> K_gain =
-          P_cov_min * C.transpose() * (C * P_cov_min * C.transpose() + R).inverse();
-      Eigen::Vector4d x_est = P_est + K_gain * (y_meas - y_pred);
+      Eigen::Matrix<double, 4, 3> K_gain = P_cov_min * C.transpose() * (C * P_cov_min * C.transpose() + R_kal).inverse();
+      Eigen::Matrix<double, 4, 3> K_gain_use = K_gain;
+      K_gain_use.row(2).setZero();
+      Eigen::Vector4d x_est = P_est + K_gain* (y_meas - y_pred);
+      RCLCPP_INFO(get_node()->get_logger(), "K_gain z-row %.2f, %.2f, %.2f",K_gain(2,0),K_gain(2,1),K_gain(2,2));
       P_cov_ = (Eigen::Matrix4d::Identity() - K_gain * C) * P_cov_min;
     
       // Step 5: PID control
       Eigen::Vector4d e = P_r_ - x_est;
       Eigen::Vector4d e_dot = (e - e_prev_full_) / dt;
-      e_int_full_ += e * dt;
+      if (d_prev[0] < 0.02 || d_prev[0] > 0.98 || d_prev[1] < 0.02 || d_prev[1] > 0.98 || d_prev[2] < 0.02 || d_prev[2] > 0.98 || d_prev[3] < 0.02 || d_prev[3] > 0.98) {
+          e_int_full_ += e * 0.0;
+      }else{
+          e_int_full_ += e * dt;
+      }
       e_prev_full_ = e;
       Eigen::Vector4d u = K_P_ * e + K_I_ * e_int_full_ + K_D_ * e_dot;
-    
+        
       // Step 6: Actuation update
-      Eigen::Vector4d delta_d = J.completeOrthogonalDecomposition().pseudoInverse() *
-                                (u - J * terrain_est);
+      Eigen::Vector4d delta_d = J.completeOrthogonalDecomposition().pseudoInverse() * u;
+
+      const double delta_threshold = 0.00;  // 2 mm - minimum delta_d magnitude worth updating
+      for (int i = 0; i < 4; ++i) {
+        if (std::abs(delta_d[i]) < delta_threshold) {
+          delta_d[i] = 0.0;
+        }else if (std::abs(delta_d[i]) > 0.1){
+          delta_d[i] = 0.0;
+      }}
+
+      if (!delta_d.allFinite()){
+        RCLCPP_ERROR(get_node()->get_logger(), "delta_d contains NaNs! Skipping update.");
+        return;
+    }
       Eigen::Vector4d d_new = d_prev + delta_d;
     
       for (int i = 0; i < 4; ++i) {
         d_new[i] = std::clamp(d_new[i], 0.0, 0.1);
         (void)command_interfaces_[i].set_value(d_new[i]);
-      }
-    
-      // Step 7: Publish terrain estimate
-      if (terrain_pub_) {
-        std_msgs::msg::Float64MultiArray msg;
-        msg.data = {terrain_est[0], terrain_est[1], terrain_est[2], terrain_est[3]};
-        terrain_pub_->publish(msg);
       }
 
       // Step 8: Publish Kalman estimate
@@ -755,6 +915,31 @@ namespace suspension_controller {
         return {theta, phi, psi, z, x, y};
     }
 
+    // Max roll- and pitch over angles
+    std::tuple<double, double> SuspensionController::maxAngles(double z, double phi, double theta){
+
+      // MISSING TERRAIN ESTIMATION AND INCLUSION!!!
+
+      const double H = 0.428;  // rocker length [m]
+      const double T = 0.721;  // track width [m]
+  
+      // Compute unsigned rollover limits
+      double phi_rollover = std::atan2(T, 2 * z);
+      double theta_rollover = std::atan2(H, 2 * z);
+  
+      // Assign the same sign as current pose
+      phi_rollover = std::copysign(phi_rollover, phi);
+      theta_rollover = std::copysign(theta_rollover, theta);
+  
+      // Total max tolerable angles
+      double phi_max = phi + phi_rollover;
+      double theta_max = theta + theta_rollover;
+  
+      return {phi_max, theta_max};
+  }
+  
+
+
     // FK Jacobian
     Eigen::Matrix<double, 4, 4> SuspensionController::manualJacobianFK4DOF(
         double d_LF, double d_LR, double d_RF, double d_RR)
@@ -843,6 +1028,8 @@ namespace suspension_controller {
       return J;
     }
 
+    
+
 
     // LQR solver - Need upgrade
     Eigen::Matrix<double, 4, 3> SuspensionController::solveContinuousLQR(const Eigen::Matrix3d& A, const Eigen::Matrix<double, 3, 4>& B, const Eigen::Matrix3d& Q, const Eigen::Matrix4d& R){
@@ -853,11 +1040,51 @@ namespace suspension_controller {
     }
 
     // Placement Suspension IK objective function
+    /*
     Eigen::Vector4d SuspensionController::solveSuspensionIK(const Eigen::Vector3d& target_pose, const Eigen::Vector4d& d_initial) {
       // Empty function for now
       return Eigen::Vector4d::Zero();
     }
+    */
+
+    Eigen::Vector4d SuspensionController::solveSuspensionIK(const Eigen::Vector3d& target_pose, const Eigen::Vector4d& /*d_initial*/) {
+
+      // MISSING YAW as input
+      // MISSING IMPLEMENTATINO OF D_INITIAL
+    
+
+      // Parameters
+      const double H = 0.428;  // rocker length [m]
+      const double T = 0.721;  // track width [m]
+      const double L = 0.377;  // nominal height [m]
   
+      // Extract pose values
+      double theta = -target_pose[0];  // pitch
+      double phi   = target_pose[1];  // roll
+      double z     = -target_pose[2];  // vertical height
+      z = (z-L)*2+L;
+      double psi   = target_pose[3];             // Assume zero yaw (or extend input if needed)
+  
+      // Yaw correction terms (if psi is added to target_pose later)
+      double pitch_r = theta + std::atan2(-std::sin(psi) * T / 2.0, z) + std::atan2(-std::sin(psi) * H / 2.0, z);
+      double pitch_l = theta + std::atan2( std::sin(psi) * T / 2.0, z) + std::atan2( std::sin(psi) * H / 2.0, z);
+  
+      // Intermediate left/right vertical positions
+      double dr = (1.0 / std::cos(phi)) * (-T / 2.0 * std::sin(phi) + z);
+      double dl = (1.0 / std::cos(phi)) * ( T / 2.0 * std::sin(phi) + z);
+  
+      // Final actuator displacements
+      double dlf = (1.0 / std::cos(pitch_l)) * (dl + H / 2.0 * std::sin(pitch_l)) - L;
+      double dlr = (1.0 / std::cos(pitch_l)) * (dl - H / 2.0 * std::sin(pitch_l))  - L;
+      double drf = (1.0 / std::cos(pitch_r)) * (dr + H / 2.0 * std::sin(pitch_r))  - L;
+      double drr = (1.0 / std::cos(pitch_r)) * (dr - H / 2.0 * std::sin(pitch_r))  - L;
+  
+      return Eigen::Vector4d(dlf, dlr, drf, drr);
+  }
+  
+    
+  
+    /*
     // LASSO
     Eigen::Vector4d SuspensionController::estimateTerrainLASSO(const Eigen::Matrix<double, 3, 4> &J, const Eigen::Vector3d &residual, const Eigen::Vector4d &weights,double lambda){
       // Weighted Jacobian
@@ -875,10 +1102,88 @@ namespace suspension_controller {
   
       return terrain_est;
   }
+  */
   
+  /*
+  Eigen::Vector4d SuspensionController::estimateTerrainLASSO(
+    const Eigen::Matrix<double, 3, 4> &J,
+    const Eigen::Vector3d &residual,
+    const Eigen::Vector4d &weights,
+    double lambda)
+{
+    // Weighted Jacobian
+    Eigen::Matrix<double, 3, 4> Jw = J;
+    for (int i = 0; i < 4; ++i)
+        Jw.col(i) /= weights[i];
 
+    // Initialization
+    Eigen::Vector4d theta = Eigen::Vector4d::Zero();
+    Eigen::Vector3d r = residual;
+
+    const int max_iter = 100;
+    const double tol = 1e-6;
+
+    for (int iter = 0; iter < max_iter; ++iter) {
+        Eigen::Vector4d theta_old = theta;
+
+        for (int j = 0; j < 4; ++j) {
+            // Compute partial residual excluding feature j
+            double rho_j = Jw.col(j).dot(r + Jw.col(j) * theta[j]);
+
+            double norm_j = Jw.col(j).squaredNorm();
+            if (norm_j == 0.0) continue;
+
+            // Soft thresholding operator
+            if (rho_j < -lambda / 2.0) {
+                theta[j] = (rho_j + lambda / 2.0) / norm_j;
+            } else if (rho_j > lambda / 2.0) {
+                theta[j] = (rho_j - lambda / 2.0) / norm_j;
+            } else {
+                theta[j] = 0.0;
+            }
+        }
+
+        // Recompute residual
+        r = residual - Jw * theta;
+
+        // Check for convergence
+        if ((theta - theta_old).norm() < tol)
+            break;
+    }
+
+    // Reapply weights
+    for (int i = 0; i < 4; ++i)
+        theta[i] /= weights[i];
+
+    return theta;
+}
+*/
+
+/*
+Eigen::Vector4d SuspensionController::estimateTerrainLASSO(
+  const Eigen::Matrix<double, 3, 4> &J,
+  const Eigen::Vector3d &residual,
+  const Eigen::Vector4d &weights,
+  double lambda)
+{ 
+  Eigen::MatrixXd X = J;
+  for (int i = 0; i < 4; ++i)
+      X.col(i) /= weights[i];
+  Eigen::VectorXd y = residual;
+
+  size_t n_iter = 100;
+  double epsilon = 1e-4;
+  Regressor *lasso = new Lasso(lambda, n_iter, epsilon);
+  lasso->fit(X, y);
+  Eigen::VectorXd beta = lasso->get_model().coef;  // ✅ fix here
+
+  delete lasso;
   
-  
+  Eigen::Vector4d terrain_est;
+  for (int i = 0; i < 4; ++i)
+      terrain_est[i] = 0.0;
+  return terrain_est;
+}*/
 } // namespace suspension_controller
 
 PLUGINLIB_EXPORT_CLASS(suspension_controller::SuspensionController, controller_interface::ControllerInterface)

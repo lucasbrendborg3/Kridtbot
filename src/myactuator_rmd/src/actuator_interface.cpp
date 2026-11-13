@@ -157,6 +157,12 @@ namespace myactuator_rmd {
     return response.getStatus();
   }
 
+  Feedback ActuatorInterface::sendPositionIncrementalSetpoint(float const increment, float const max_speed) {
+    SetPositionIncrementalRequest const request {increment, max_speed};
+    SetPositionIncrementalResponse const response {driver_.sendRecv(request, actuator_id_)};
+    return response.getStatus();
+  }
+
   Feedback ActuatorInterface::sendTorqueSetpoint(float const torque, float const torque_constant) {
     auto const current {torque/torque_constant};
     return sendCurrentSetpoint(current);

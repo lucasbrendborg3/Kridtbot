@@ -34,6 +34,7 @@ namespace suspension_controller {
       
       rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr terrain_pub_;
       rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr kalman_pub_;
+      
 
 
     private:
@@ -55,6 +56,7 @@ namespace suspension_controller {
       Eigen::Matrix<double, 4, 3> K0_;   
       rclcpp::Time last_update_time_;
 
+
       // Terrain
       double lambda_ = 0.0001; // Regularization weight for terrain estimation
 
@@ -64,19 +66,23 @@ namespace suspension_controller {
       std::mutex imu_mutex_;
       double latest_pitch_, latest_roll_, latest_yaw_;
       std::deque<double> pitch_window_, roll_window_, yaw_window_;
-      const size_t filter_window_size_ = 5;
+      const size_t filter_window_size_ = 3;
       double smoothed_pitch_ = 0.0;
       double smoothed_roll_ = 0.0;
       double smoothed_yaw_ = 0.0;
-      const double alpha_ = 0.1;
+      const double alpha_ = 0.3;
 
       bool imu_ready_ = false;
 
       rclcpp::Time last_time_;
-
+      
+      // Target pose subscriber
+      rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr target_position_sub_;
+      void refference_pose_callback(const std_msgs::msg::Float64MultiArray::SharedPtr msg);
+    
       // Kalman Filter
       Eigen::Matrix4d P_cov_;                  // covariance
-      std::vector<double> noise_std_;          // [theta, roll, z, yaw]
+      std::vector<double> noise_std_;          // [theta, roll, z]
 
 
       // Core control
@@ -94,8 +100,8 @@ namespace suspension_controller {
       Eigen::Matrix<double, 4, 4> manualJacobianFK4DOF(double d_LF, double d_LR, double d_RF, double d_RR);
       Eigen::Matrix<double, 4, 3> solveContinuousLQR(const Eigen::Matrix3d& A, const Eigen::Matrix<double, 3, 4>& B, const Eigen::Matrix3d& Q, const Eigen::Matrix4d& R);
       Eigen::Vector4d solveSuspensionIK(const Eigen::Vector3d& target_pose, const Eigen::Vector4d& d_initial);
-      Eigen::Vector4d estimateTerrainLASSO(const Eigen::Matrix<double, 3, 4> &J, const Eigen::Vector3d &residual, const Eigen::Vector4d &weights, double lambda);
-
+      //Eigen::Vector4d estimateTerrainLASSO(const Eigen::Matrix<double, 3, 4> &J, const Eigen::Vector3d &residual, const Eigen::Vector4d &weights, double lambda);
+      std::tuple<double, double> maxAngles(double z, double phi, double theta);
     };
 
 

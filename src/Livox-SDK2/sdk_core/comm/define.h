@@ -33,6 +33,12 @@
 #include <atomic>
 
 #include "livox_lidar_def.h"
+#include <cstdint>  // ADD THIS LINE
+
+namespace std {
+   using uint8_t = ::uint8_t;
+   using uint16_t = ::uint16_t;
+}
 
 namespace livox {
 namespace lidar {

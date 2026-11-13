@@ -1,0 +1,9 @@
+<library path="bno055_hardware_interface">
+  <class name="bno055_hardware_interface/BNO055HardwareInterface"
+         type="bno055_hardware_interface::BNO055HardwareInterface"
+         base_class_type="hardware_interface::SensorInterface">
+    <description>
+      IMU sensor interface
+    </description>
+  </class>
+</library>

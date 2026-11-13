@@ -263,6 +263,20 @@ namespace myactuator_rmd {
       */
       Feedback sendPositionAbsoluteSetpoint(float const position, float const max_speed = 500.0);
 
+      /**\fn sendPositionIncrementalSetpoint
+       * \brief
+       *    Send an incremental position set-point (move relative to the current position) to the actuator
+       *    additionally specifying a maximum velocity
+       *
+       * \param[in] increment
+       *    The angle to move by in degree
+       * \param[in] max_speed
+       *    The maximum speed for the motion in degree per second
+       * \return
+       *    Feedback control message containing actuator position, velocity, torque and temperature
+      */
+      Feedback sendPositionIncrementalSetpoint(float const increment, float const max_speed = 500.0);
+
       /**\fn sendTorqueSetpoint
        * \brief
        *    Send a torque set-point to the actuator by setting the current

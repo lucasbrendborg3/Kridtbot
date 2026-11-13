@@ -13,6 +13,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 #include <thread>
@@ -264,10 +265,26 @@ namespace myactuator_rmd_hardware {
        *    Stop the asynchronous command thread used to communicate with the hardware
       */
       void stopAsyncThread();
-      
+
+      /**\fn sendWithRetry
+       * \brief
+       *    Send a command to the actuator, repeating it until the actuator confirms it. A reply that
+       *    arrived after its request had already timed out can still be waiting in the socket and is
+       *    then read as the (wrong) reply to the next command; each retry consumes one such reply.
+       *
+       * \param[in] description
+       *    Short name of the command for the log
+       * \param[in] command
+       *    The command to send
+       * \return
+       *    True if the actuator confirmed the command
+      */
+      bool sendWithRetry(char const* description, std::function<void()> const& command);
+
       std::string ifname_;
       std::uint32_t actuator_id_;
       double torque_constant_;
+      double direction_;
       double max_velocity_;
       std::chrono::milliseconds timeout_;
 

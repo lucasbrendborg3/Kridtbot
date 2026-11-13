@@ -19,15 +19,13 @@
 // AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-// SOFTWARE.
-//
-
 #ifndef LIVOX_FILE_MANAGER_
 #define LIVOX_FILE_MANAGER_
 
 #include <string>
 #include <vector>
 #include <map>
+#include <cstdint>  // Added missing include for uint64_t
 
 namespace livox {
 namespace lidar {

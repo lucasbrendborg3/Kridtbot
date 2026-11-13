@@ -52,7 +52,10 @@ namespace myactuator_rmd {
   : Message{data} {
     if (data[0] != C) {
       std::stringstream ss {};
-      ss << std::showbase << std::hex << static_cast<std::uint16_t>(data[0]);
+      ss << std::showbase << std::hex 
+      << static_cast<std::uint16_t>(data[0]) 
+      << ((static_cast<std::uint16_t>(data[7]) << 8) | static_cast<std::uint16_t>(data[6]))
+      << " (expected " << static_cast<std::uint16_t>(C) << ")";
       throw ProtocolException("Unexpected response '" + ss.str() + "'");
     }
     return;

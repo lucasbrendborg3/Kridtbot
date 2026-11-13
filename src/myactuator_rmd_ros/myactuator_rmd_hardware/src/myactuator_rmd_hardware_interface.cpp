@@ -99,18 +99,83 @@ namespace myactuator_rmd_hardware {
     if (timeout_ == std::chrono::milliseconds(0)) {
       RCLCPP_INFO(getLogger(), "Timeout set to 0ms, it will not be used!");
     }
+    // How long to wait for the motor's reply to each request. A motor occasionally drops a request
+    // (seen on one X8-PRO when another motor's request follows on the same bus); with the library's
+    // default of 1 s that froze the wheel for a full second, now it only costs one cycle.
+    std::chrono::milliseconds reply_timeout {10};
+    if (info_.hardware_parameters.find("reply_timeout") != info_.hardware_parameters.end()) {
+      reply_timeout = std::chrono::milliseconds(std::stol(info_.hardware_parameters["reply_timeout"]));
+    } else {
+      RCLCPP_INFO(getLogger(), "Reply timeout not set, defaulting to '%ld' ms.", reply_timeout.count());
+    }
     driver_ = std::make_unique<myactuator_rmd::CanDriver>(ifname_);
+    driver_->setRecvTimeout(reply_timeout);
     actuator_interface_ = std::make_unique<myactuator_rmd::ActuatorInterface>(*driver_, actuator_id_);
     if (!actuator_interface_) {
       RCLCPP_INFO(getLogger(), "Failed to create actuator interface!");
       return CallbackReturn::ERROR;
     }
-    std::string const motor_model {actuator_interface_->getMotorModel()};
+    // The very first CAN read on a freshly opened socket can transiently fail (e.g. the
+    // still-settling bus/controller state right after activation), so retry a few times
+    // before giving up rather than crashing the whole controller manager on a one-off glitch.
+    std::string motor_model {};
+    constexpr int kMaxStartupAttempts {5};
+    for (int attempt = 1; attempt <= kMaxStartupAttempts; ++attempt) {
+      try {
+        motor_model = actuator_interface_->getMotorModel();
+        break;
+      } catch (std::runtime_error const& e) {
+        if (attempt == kMaxStartupAttempts) {
+          RCLCPP_FATAL(getLogger(), "Failed to communicate with actuator after %d attempts: %s", kMaxStartupAttempts, e.what());
+          return CallbackReturn::ERROR;
+        }
+        RCLCPP_WARN(getLogger(), "Initial communication attempt %d/%d failed (%s), retrying...", attempt, kMaxStartupAttempts, e.what());
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      }
+    }
     RCLCPP_INFO(getLogger(), "Started actuator interface for actuator model '%s'!", motor_model.c_str());
+    // Some motors (seen on an X8-PRO) ignore speed commands after power-up or reset: they reply but
+    // stay idle (operating mode 0) until they have received a shutdown (motor off) command. So: send
+    // motor off, then check with a 0 deg/s speed command that the motor really enters speed control,
+    // and finish with motor off again so the wheel is left free until a controller takes over.
+    // Nothing moves during this sequence.
+    constexpr int kMaxEnableAttempts {3};
+    bool speed_control_engaged {false};
+    for (int attempt = 1; attempt <= kMaxEnableAttempts && !speed_control_engaged; ++attempt) {
+      try {
+        actuator_interface_->shutdownMotor();
+        actuator_interface_->sendVelocitySetpoint(0.0f);
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        speed_control_engaged = (actuator_interface_->getControlMode() == myactuator_rmd::ControlMode::VELOCITY);
+        actuator_interface_->shutdownMotor();
+        if (!speed_control_engaged && attempt < kMaxEnableAttempts) {
+          RCLCPP_WARN(getLogger(), "Actuator %u on '%s' did not enter speed control (attempt %d/%d), retrying...",
+            actuator_id_, ifname_.c_str(), attempt, kMaxEnableAttempts);
+        }
+      } catch (std::runtime_error const& e) {
+        RCLCPP_WARN(getLogger(), "Enabling speed control on actuator %u on '%s' failed (attempt %d/%d): %s",
+          actuator_id_, ifname_.c_str(), attempt, kMaxEnableAttempts, e.what());
+      }
+      if (!speed_control_engaged) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      }
+    }
+    if (speed_control_engaged) {
+      RCLCPP_INFO(getLogger(), "Actuator %u on '%s': speed control confirmed.", actuator_id_, ifname_.c_str());
+    } else {
+      RCLCPP_ERROR(getLogger(), "Actuator %u on '%s' did NOT enter speed control after %d attempts: this wheel will not drive! "
+        "Power-cycle the motor and relaunch.", actuator_id_, ifname_.c_str(), kMaxEnableAttempts);
+    }
     stop_async_thread_.store(false);
     if (!startAsyncThread(cycle_time_)) {
       RCLCPP_FATAL(getLogger(), "Failed to start async thread!");
       return CallbackReturn::ERROR;
+    }
+    if (info_.hardware_parameters.find("direction") != info_.hardware_parameters.end()) {
+      direction_ = std::stod(info_.hardware_parameters["direction"]);
+    } else {
+      direction_ = 1.0;
+      RCLCPP_INFO(getLogger(), "Not using effort low-pass filter.");
     }
 
     return CallbackReturn::SUCCESS;
@@ -119,15 +184,18 @@ namespace myactuator_rmd_hardware {
   CallbackReturn MyActuatorRmdHardwareInterface::on_cleanup(rclcpp_lifecycle::State const& /*previous_state*/) {
     stopAsyncThread();
     if (actuator_interface_) {
-      actuator_interface_->shutdownMotor();
+      // Also called from the destructor (e.g. on Ctrl+C, or during teardown after another
+      // component failed to configure), so a transient CAN failure here must not be allowed
+      // to escape as an uncaught exception and crash the whole controller manager.
+      sendWithRetry("shut down motor", [this]() { actuator_interface_->shutdownMotor(); });
     }
     return CallbackReturn::SUCCESS;
   }
-  
+
   CallbackReturn MyActuatorRmdHardwareInterface::on_shutdown(rclcpp_lifecycle::State const& /*previous_state*/) {
     stopAsyncThread();
     if (actuator_interface_) {
-      actuator_interface_->shutdownMotor();
+      sendWithRetry("shut down motor", [this]() { actuator_interface_->shutdownMotor(); });
     }
     return CallbackReturn::SUCCESS;
   }
@@ -140,18 +208,21 @@ namespace myactuator_rmd_hardware {
   CallbackReturn MyActuatorRmdHardwareInterface::on_deactivate(rclcpp_lifecycle::State const& /*previous_state*/) {
     stopAsyncThread();
     if (actuator_interface_) {
-      actuator_interface_->stopMotor();
+      // Runs during rollback of an already-active component if another one fails to configure,
+      // so a transient CAN failure here must not crash the whole controller manager either.
+      sendWithRetry("stop motor", [this]() { actuator_interface_->stopMotor(); });
     }
     RCLCPP_INFO(getLogger(), "Actuator successfully stopped!");
     return CallbackReturn::SUCCESS;
   }
-  
+
   CallbackReturn MyActuatorRmdHardwareInterface::on_error(rclcpp_lifecycle::State const& /*previous_state*/) {
     stopAsyncThread();
     if (actuator_interface_) {
-      actuator_interface_->stopMotor();
-      actuator_interface_->reset();
-      RCLCPP_INFO(getLogger(), "Actuator reset!");
+      sendWithRetry("stop motor", [this]() { actuator_interface_->stopMotor(); });
+      if (sendWithRetry("reset motor", [this]() { actuator_interface_->reset(); })) {
+        RCLCPP_INFO(getLogger(), "Actuator reset!");
+      }
     }
     return CallbackReturn::SUCCESS;
   }
@@ -329,9 +400,9 @@ namespace myactuator_rmd_hardware {
 
   hardware_interface::return_type MyActuatorRmdHardwareInterface::read(rclcpp::Time const& /*time*/,
     rclcpp::Duration const& /*period*/) {
-    position_state_ = async_position_state_.load();
-    velocity_state_ = async_velocity_state_.load();
-    effort_state_ = async_effort_state_.load();
+    position_state_ = direction_*async_position_state_.load();
+    velocity_state_ = direction_*async_velocity_state_.load();
+    effort_state_ = direction_*async_effort_state_.load();
     return hardware_interface::return_type::OK;
   }
 
@@ -339,11 +410,11 @@ namespace myactuator_rmd_hardware {
     rclcpp::Duration const& /*period*/) {
     // TODO: Make sure that all commands are finite
     if (position_interface_running_) {
-      async_position_command_.store(position_command_);
+      async_position_command_.store(direction_*position_command_);
     } else if (velocity_interface_running_) {
-      async_velocity_command_.store(velocity_command_);
+      async_velocity_command_.store(direction_*velocity_command_);
     } else if (effort_interface_running_) {
-      async_effort_command_.store(effort_command_);
+      async_effort_command_.store(direction_*effort_command_);
     }
     return hardware_interface::return_type::OK;
   }
@@ -353,36 +424,67 @@ namespace myactuator_rmd_hardware {
   }
 
   void MyActuatorRmdHardwareInterface::asyncThread(std::chrono::milliseconds const& cycle_time) {
-    actuator_interface_->setTimeout(timeout_);
+    // Same transient-failure risk as the initial getMotorModel() read in on_configure(): this is
+    // a real CAN write+read and must not be allowed to throw uncaught out of this thread.
+    for (int attempt = 1; attempt <= 5; ++attempt) {
+      try {
+        actuator_interface_->setTimeout(timeout_);
+        break;
+      } catch (std::runtime_error const& e) {
+        RCLCPP_WARN(getLogger(), "Failed to set timeout (attempt %d/5): %s", attempt, e.what());
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      }
+    }
+    std::size_t consecutive_failures {0};
     while (!stop_async_thread_) {
       auto const now {std::chrono::steady_clock::now()};
       auto const wakeup_time {now + cycle_time};
-      if (position_interface_running_) {
-        feedback_ = actuator_interface_->sendPositionAbsoluteSetpoint(radToDeg(async_position_command_.load()), max_velocity_);
-      } else if (velocity_interface_running_) {
-        feedback_ = actuator_interface_->sendVelocitySetpoint(radToDeg(async_velocity_command_.load()));
-      } else if (effort_interface_running_) {
-        feedback_ = actuator_interface_->sendTorqueSetpoint(async_effort_command_.load(), torque_constant_);
-      } else {
-        feedback_ = actuator_interface_->getMotorStatus2();
-      }
+      // A single CAN read/write can transiently fail (e.g. a stray bus error frame). Skip this
+      // cycle (keeping the last known state) instead of letting an uncaught exception escape this
+      // thread, which would call std::terminate() and crash the whole controller manager.
+      try {
+        if (position_interface_running_) {
+          feedback_ = actuator_interface_->sendPositionAbsoluteSetpoint(radToDeg(async_position_command_.load()), max_velocity_);
+        } else if (velocity_interface_running_) {
+          feedback_ = actuator_interface_->sendVelocitySetpoint(radToDeg(async_velocity_command_.load()));
+        } else if (effort_interface_running_) {
+          feedback_ = actuator_interface_->sendTorqueSetpoint(async_effort_command_.load(), torque_constant_);
+        } else {
+          feedback_ = actuator_interface_->getMotorStatus2();
+        }
 
-      double const position_state {feedback_.shaft_angle};
-      double velocity_state {feedback_.shaft_speed};
-      if (velocity_low_pass_filter_) {
-        velocity_state = velocity_low_pass_filter_->apply(velocity_state);
+        double const position_state {feedback_.shaft_angle};
+        double velocity_state {feedback_.shaft_speed};
+        if (velocity_low_pass_filter_) {
+          velocity_state = velocity_low_pass_filter_->apply(velocity_state);
+        }
+        double current_state {feedback_.current};
+        if (effort_low_pass_filter_) {
+          current_state = effort_low_pass_filter_->apply(current_state);
+        }
+        async_position_state_.store(degToRad(position_state));
+        async_velocity_state_.store(degToRad(velocity_state));
+        async_effort_state_.store(currentToTorque(current_state, torque_constant_));
+
+        if (consecutive_failures > 0) {
+          RCLCPP_INFO(getLogger(), "Recovered after %zu failed communication cycle(s).", consecutive_failures);
+          consecutive_failures = 0;
+        }
+      } catch (std::runtime_error const& e) {
+        ++consecutive_failures;
+        // Log the first failure immediately, then only occasionally to avoid spamming at cycle rate.
+        if (consecutive_failures == 1 || consecutive_failures % 250 == 0) {
+          RCLCPP_WARN(getLogger(), "Communication cycle failed (%zu consecutive): %s", consecutive_failures, e.what());
+        }
       }
-      double current_state {feedback_.current};
-      if (effort_low_pass_filter_) {
-        current_state = effort_low_pass_filter_->apply(current_state);
-      }
-      async_position_state_.store(degToRad(position_state));
-      async_velocity_state_.store(degToRad(velocity_state));
-      async_effort_state_.store(currentToTorque(current_state, torque_constant_));
 
       std::this_thread::sleep_until(wakeup_time);
     }
-    actuator_interface_->setTimeout(std::chrono::milliseconds(0));
+    try {
+      actuator_interface_->setTimeout(std::chrono::milliseconds(0));
+    } catch (std::runtime_error const& e) {
+      RCLCPP_WARN(getLogger(), "Failed to clear timeout on shutdown: %s", e.what());
+    }
     return;
   }
 
@@ -434,6 +536,22 @@ namespace myactuator_rmd_hardware {
       RCLCPP_WARN(getLogger(), "Could not stop command thread: Not running!");
     }
     return;
+  }
+
+  bool MyActuatorRmdHardwareInterface::sendWithRetry(char const* description, std::function<void()> const& command) {
+    constexpr int kMaxAttempts {5};
+    for (int attempt = 1; attempt <= kMaxAttempts; ++attempt) {
+      try {
+        command();
+        return true;
+      } catch (std::runtime_error const& e) {
+        if (attempt == kMaxAttempts) {
+          RCLCPP_ERROR(getLogger(), "Actuator %u on '%s': failed to %s after %d attempts: %s",
+            actuator_id_, ifname_.c_str(), description, kMaxAttempts, e.what());
+        }
+      }
+    }
+    return false;
   }
 
 }  // namespace myactuator_rmd_hardware

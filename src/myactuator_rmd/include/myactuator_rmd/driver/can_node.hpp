@@ -30,6 +30,10 @@ namespace myactuator_rmd {
   */
   template <std::uint32_t SEND_ID_OFFSET, std::uint32_t RECEIVE_ID_OFFSET>
   class CanNode: public Driver, protected can::Node {
+    public:
+      // How long sendRecv waits for a reply (default 1 s); shorter means a lost reply costs less time
+      using can::Node::setRecvTimeout;
+
     protected:
       /**\fn CanNode
        * \brief

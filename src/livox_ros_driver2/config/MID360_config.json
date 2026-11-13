@@ -25,14 +25,14 @@
   },
   "lidar_configs" : [
     {
-      "ip" : "192.168.1.160",
+      "ip" : "192.168.1.110",
       "pcl_data_type" : 1,
       "pattern_mode" : 0,
-      "frame_id" : "livox_mid360_frame",
+      "frame_id" : "lidar_link",
       "extrinsic_parameter" : {
-        "roll": 0.0,
-        "pitch": 0.0,
-        "yaw": 0.0,
+        "roll": 0,
+        "pitch": 0,
+        "yaw": 0,
         "x": 0,
         "y": 0,
         "z": 0

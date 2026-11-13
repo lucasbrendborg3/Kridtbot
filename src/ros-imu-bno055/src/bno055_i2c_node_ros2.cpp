@@ -62,7 +62,7 @@ BNO055I2CNode::BNO055I2CNode()
 
     imu->init();
 
-    pub_data = this->create_publisher<sensor_msgs::msg::Imu>("data", 10);
+    pub_data = this->create_publisher<sensor_msgs::msg::Imu>("imu", 10);
     pub_raw = this->create_publisher<sensor_msgs::msg::Imu>("raw", 10);
     pub_mag = this->create_publisher<sensor_msgs::msg::MagneticField>("mag", 10);
     pub_temp = this->create_publisher<sensor_msgs::msg::Temperature>("temp", 10);

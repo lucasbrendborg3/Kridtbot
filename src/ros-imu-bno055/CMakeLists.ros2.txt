@@ -1,6 +1,6 @@
-# Default to C++14
-if(NOT CMAKE_CXX_STANDARD)
-  set(CMAKE_CXX_STANDARD 14)
+
+if(CMAKE_CXX_COMPILER_ID MATCHES "(GNU|Clang)")
+  add_compile_options(-Wall -Wextra)
 endif()
 
 # Find dependencies
@@ -17,6 +17,10 @@ include_directories(
   ${sensor_msgs_INCLUDE_DIRS}
   ${std_msgs_INCLUDE_DIRS}
   ${diagnostic_msgs_INCLUDE_DIRS}
+)
+
+add_library(imu_bno055 SHARED
+    src/bno055_i2c_driver.cpp  # Include the source file with the constructor definition
 )
 
 add_executable(bno055_i2c_node
@@ -36,5 +40,24 @@ ament_target_dependencies(bno055_i2c_node
 install(TARGETS bno055_i2c_node
   DESTINATION lib/${PROJECT_NAME}
 )
+
+install(
+  DIRECTORY include/
+  DESTINATION include
+)
+
+install(TARGETS imu_bno055
+  EXPORT imu_bno055_export
+  DESTINATION lib
+)
+
+install(EXPORT imu_bno055_export
+  FILE imu_bno055Config.cmake
+  DESTINATION share/ament_index/resource_index/ament_cmake/
+)
+
+
+ament_export_include_directories(include)
+ament_export_libraries(imu_bno055)
 
 ament_package()

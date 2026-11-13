@@ -3,6 +3,14 @@
 cmake_minimum_required(VERSION 3.5)
 project(livox_ros_driver2)
 
+if(POLICY CMP0074)
+  cmake_policy(SET CMP0074 NEW)
+endif()
+
+if(POLICY CMP0144)
+  cmake_policy(SET CMP0144 NEW)
+endif()
+
 # Default to C99
 if(NOT CMAKE_C_STANDARD)
   set(CMAKE_C_STANDARD 99)
@@ -96,6 +104,7 @@ target_include_directories(${PROJECT_NAME} PUBLIC
   src
 )
 
+
 # link libraries
 target_link_libraries(${PROJECT_NAME}
   ${livox_sdk2_LIBRARIES}
@@ -105,6 +114,8 @@ target_link_libraries(${PROJECT_NAME}
   ${PCL_LIBRARIES}
   ${APR_LIBRARIES}
 )
+
+
 
 rclcpp_components_register_node(${PROJECT_NAME}
   PLUGIN "livox_ros::DriverNode"
